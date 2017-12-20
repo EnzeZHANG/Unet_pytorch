@@ -12,10 +12,13 @@ HOME = os.path.expanduser('~')
 import sys
 
 basicCodes_path = HOME + '/codes/PycharmProjects/DeeplabforRS'
-sys.path.insert(0, basicCodes_path)
+#sys.path.insert(0, basicCodes_path)
 from basic_src.RSImage import RSImageclass
 import basic_src.basic as  basic
 import split_image
+
+crop_width=384
+crop_height=240
 
 
 class patchclass(object):
@@ -38,10 +41,17 @@ def read_patch(patch_obj):
     # window structure; expecting ((row_start, row_stop), (col_start, col_stop))
     boundary = patch_obj.boundary #(xoff,yoff ,xsize, ysize)
     window = ((boundary[1],boundary[1]+boundary[3])  ,  (boundary[0],boundary[0]+boundary[2]))
+    #print(window)
     with rasterio.open(patch_obj.org_img) as img_obj:
         # read the all bands
         indexes = img_obj.indexes
         data = img_obj.read(indexes,window=window)
+
+        # replace the nodata as zeros (means background)
+        if img_obj.profile.has_key('nodata'):
+            nodata = img_obj.profile['nodata']
+            data[np.where(data==nodata)] = 0
+
         return data
 
 def check_input_image_and_label(image_path, label_path):
@@ -66,6 +76,8 @@ def check_input_image_and_label(image_path, label_path):
         assert False
 
     # check resolution
+    a=img_obj.GetXresolution()
+    b=label_obj.GetXresolution()
     if img_obj.GetXresolution() != label_obj.GetXresolution() or img_obj.GetYresolution() != label_obj.GetYresolution():
         basic.outputlogMessage(
             "Error, not the same resolution of image (%s) and label (%s)" % (image_path, label_path))
@@ -74,13 +86,13 @@ def check_input_image_and_label(image_path, label_path):
     # check projection
     if img_obj.GetProjection() != label_obj.GetProjection():
         basic.outputlogMessage(
-            "Error, not the same projection of image (%s) and label (%s)" % (image_path, label_path))
-        assert False
+            "warning, not the same projection of image (%s) and label (%s)" % (image_path, label_path))
+    #     assert False
 
     return (width, height)
 
 
-def make_dataset(root,list_txt,patch_w,patch_h,adj_overlay,train=True):
+def make_dataset(root,list_txt,patch_w,patch_h,adj_overlay_x,adj_overlay_y,train=True):
     """
     get the patches information of the remote sensing images. 
     :param root: data root
@@ -107,20 +119,25 @@ def make_dataset(root,list_txt,patch_w,patch_h,adj_overlay,train=True):
     if train:
         for line in files_list:
             names_list = line.split()
+            if len(names_list) < 1: # empty line
+                continue
             image_name = names_list[0]
             label_name = names_list[1].strip()
 
-            img_path = os.path.join(root,image_name)
-            label_path = os.path.join(root,label_name)
+            # img_path = os.path.join(root,image_name)
+            # label_path = os.path.join(root,label_name)
+
+            img_path=image_name
+            label_path=label_name
             #
             (width,height) = check_input_image_and_label(img_path,label_path)
 
             # split the image and label
-            patch_boundary = split_image.sliding_window(width, height, patch_w, patch_h, adj_overlay)
+            patch_boundary = split_image.sliding_window(width, height, patch_w, patch_h, adj_overlay_x,adj_overlay_y)
 
             for patch in patch_boundary:
-                # remove the patch small than model input size
-                if patch[2] < 480 or patch[3] < 480:   # xSize < 480 or ySize < 480
+               # remove the patch small than model input size
+                if patch[2] < crop_width or patch[3] < crop_height:   # xSize < 480 or ySize < 480
                     continue
                 img_patch = patchclass(img_path,patch)
                 label_patch = patchclass(label_path,patch)
@@ -131,7 +148,7 @@ def make_dataset(root,list_txt,patch_w,patch_h,adj_overlay,train=True):
             names_list = line.split()
             image_name = names_list[0].strip()
 
-            img_path = os.path.join(root,image_name)
+            img_path = image_name
             #
             img_obj = RSImageclass()
             if img_obj.open(img_path) is False:
@@ -140,11 +157,11 @@ def make_dataset(root,list_txt,patch_w,patch_h,adj_overlay,train=True):
             height = img_obj.GetHeight()
 
             # split the image and label
-            patch_boundary = split_image.sliding_window(width, height, patch_w, patch_h, adj_overlay)
+            patch_boundary = split_image.sliding_window(width, height, patch_w, patch_h, adj_overlay_x,adj_overlay_y)
 
             for patch in patch_boundary:
                 # need to handle the patch with smaller size
-                # if patch[2] < 480 or patch[3] < 480:   # xSize < 480 or ySize < 480
+                # if patch[2] < crop_width or patch[3] < crop_height:   # xSize < 480 or ySize < 480
                 #     continue
                 img_patch = patchclass(img_path,patch)
 
@@ -164,19 +181,20 @@ class RemoteSensingImg(data.Dataset):
     https://www.kaggle.com/c/ultrasound-nerve-segmentation
     """
 
-    def __init__(self, root,list_txt,patch_w,patch_h,adj_overlay, transform=None, train=True):
+    def __init__(self, root,list_txt,patch_w,patch_h,adj_overlay_x,adj_overlay_y, transform=None, train=True):
         self.train = train
         self.root = root
 
         # we cropped the image(the size of each patch, can be divided by 16 )
-        self.nRow = 480
-        self.nCol = 480
+        self.nRow = crop_height
+        self.nCol = crop_width
 
-        self.patches = make_dataset(root, list_txt,patch_w,patch_h,adj_overlay,train)
+        self.patches = make_dataset(root, list_txt,patch_w,patch_h,adj_overlay_x,adj_overlay_y,train)
 
     def __getitem__(self, idx):
         if self.train:
             img_patch, gt_patch = self.patches[idx]
+           # print(idx)
 
             img = read_patch(img_patch)
             # img.resize(self.nRow,self.nCol)
@@ -188,7 +206,8 @@ class RemoteSensingImg(data.Dataset):
                 img = (img - img.min()) / (img.max() - img.min())
             img = torch.from_numpy(img).float()
 
-            gt = read_patch(gt_patch)[:,0:self.nRow, 0:self.nCol]
+            gt = read_patch(gt_patch)
+            gt=gt[:,0:self.nRow, 0:self.nCol]
             gt = np.atleast_3d(gt)
             # gt = gt / 255.0   # we don't need to scale
             gt = torch.from_numpy(gt).float()

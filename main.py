@@ -37,18 +37,21 @@ parser.add_argument('--test', action='store_true', help='switch to test model, w
 
 args = parser.parse_args()
 print(args)
-
+print(crop_width)
+print(crop_height)
 ############## dataset processing
 parameters.set_saved_parafile_path(args.para)
 patch_w = parameters.get_digit_parameters("","train_patch_width",None,'int')
 patch_h = parameters.get_digit_parameters("","train_patch_height",None,'int')
-overlay = parameters.get_digit_parameters("","train_pixel_overlay",None,'int')
+overlay_x = parameters.get_digit_parameters("","train_pixel_overlay_x",None,'int')
+overlay_y = parameters.get_digit_parameters("","train_pixel_overlay_y",None,'int')
 
-dataset = RemoteSensingImg(args.dataroot, args.list, patch_w,patch_h, overlay)
+dataset = RemoteSensingImg(args.dataroot, args.list, patch_w,patch_h, overlay_x,overlay_y)
 train_loader = torch.utils.data.DataLoader(dataset, batch_size=args.batchSize,
                                            num_workers=args.workers, shuffle=True)
 # torch.backends.cudnn.enabled = True
 ############## create model
+
 model = Net(args.useBN)
 if args.cuda:
     model.cuda()
@@ -93,6 +96,7 @@ def train(epoch):
     loss_sum = 0
 
     for i, (x, y) in enumerate(train_loader):
+       # print(i)
         x, y_true = Variable(x), Variable(y)
         if args.cuda:
             x = x.cuda()
@@ -146,7 +150,7 @@ def showImg(img, binary=True, fName=''):
     img = Image.fromarray(np.uint8(img * 255), mode='L')
 
     if fName:
-        img.save('assets/' + fName + '.png')
+        img.save('train_output/' + fName + '.png')
     else:
         img.show()
 
