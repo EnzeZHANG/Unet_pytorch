@@ -17,8 +17,9 @@ from basic_src.RSImage import RSImageclass
 import basic_src.basic as  basic
 import split_image
 
-crop_width=384
-crop_height=240
+
+crop_width=480
+crop_height=480
 
 
 class patchclass(object):
@@ -136,7 +137,9 @@ def make_dataset(root,list_txt,patch_w,patch_h,adj_overlay_x,adj_overlay_y,train
             patch_boundary = split_image.sliding_window(width, height, patch_w, patch_h, adj_overlay_x,adj_overlay_y)
 
             for patch in patch_boundary:
+
                # remove the patch small than model input size
+
                 if patch[2] < crop_width or patch[3] < crop_height:   # xSize < 480 or ySize < 480
                     continue
                 img_patch = patchclass(img_path,patch)
